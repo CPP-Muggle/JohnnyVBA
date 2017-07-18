@@ -1,0 +1,28 @@
+The complete video code is given below: 
+Sub consolidateData()
+Range("A1").Select
+ActiveCell.Value = "Item"
+Range("B1").Select
+ActiveCell.Value = "Qty"
+Range("A2").Select
+ActiveCell.Value = "a"
+Range("A3").Select
+ActiveCell.Value = "b"
+Range("A4").Select
+ActiveCell.Value = "c"
+Range("B2").Select
+Workbooks.Open Filename:="C:\Stock-Sales\a.xlsx"
+Workbooks.Open Filename:="C:\Stock-Sales\b.xlsx"
+Workbooks.Open Filename:="C:\Stock-Sales\c.xlsx"
+Windows("consolidate").Activate
+Selection.Consolidate Sources:=Array( _
+"'C:\Stock-Sales\[a.xlsx]Sheet1'!R2C2:R4C2", _
+"'C:\Stock-Sales\[b.xlsx]Sheet1'!R2C2:R4C2", _
+"'C:\Stock-Sales\[c.xlsx]Sheet1'!R2C2:R4C2"), Function:=xlSum
+Windows("a.xlsx").Activate
+ActiveWorkbook.Close
+Windows("b.xlsx").Activate
+ActiveWorkbook.Close
+Windows("c.xlsx").Activate
+ActiveWorkbook.Close
+End Sub 
