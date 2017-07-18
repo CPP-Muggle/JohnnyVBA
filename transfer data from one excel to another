@@ -1,0 +1,21 @@
+Private Sub CommandButton1_click()
+  Dim itemName As String
+  Dim itemPrice As String
+  Dim myData as Workbook
+Worksheets("sheet1").select
+itemName=Range("B1")
+Worksheets("sheet1").select
+itemPrice=Range("B2")
+
+Set myData=Workbooks.Open("C:\Stock\Postings.xlsx")
+Worksheets("sheet1").Select
+Worksheets("sheet1").Range("A1").select
+RowCount=Worksheets("sheet1").range("A1").currentregion.rows.count
+With Worksheets("Sheet1").Range("A1")
+  .Offset(Rowcount,0)=itemName
+  .Offset(Rowcount,1)=itemPrice
+End With
+
+myData.Save
+
+End Sub
