@@ -1,0 +1,38 @@
+Sub Import()
+  DIm ws as worksheet
+  Dim qt as querytable
+  dim url as string
+  
+  url="url:...."
+  
+  set ws = worksheets.add
+  set qt = ws.querytable.add(connection:="url;" & URL, Destination :=Range("A1")
+  
+  with qt
+    .refreshonfileopen = True
+    '.refreshPeriod = 5 '5mins
+    .name = "name"
+    .webformatting = xlwebformattingRTF
+    .webselectiontype = xlAllTables
+    .refresh
+  end with
+end sub
+
+sub importwithloop()
+  DIm ws as worksheet
+  Dim qt as querytable
+  dim url as string
+  
+  Dim i as integer
+ 
+  url="url:...."
+  
+    for i = 1 to 3
+    set ws = worksheets.add
+    set qt = ws.querytable.add(connection:="url;" & URL, Destination :=Range("A1")
+
+    with qt
+      .RefreshOnFileOn=True
+      .Name="Name"
+      .webformatting = xlwebformattingRTF
+      
