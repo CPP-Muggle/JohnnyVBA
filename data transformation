@@ -1,0 +1,64 @@
+Option Explicit
+
+Sub Demo()
+    With Application
+        .ScreenUpdating = False             'stop screen flickering
+        .Calculation = xlCalculationManual  'prevent calculation while execution
+    End With
+
+    Dim i As Long, lastrow As Long, tblLastRow As Long, tblLastColumn As Long
+    Dim dict As Object
+    Dim rng As Variant
+    Dim ws As Worksheet
+    Dim cel As Range, dateRng, fundCodeRng As Range, categoryRng As Range, valueRng As Range
+
+    Set dict = CreateObject("Scripting.Dictionary")
+    Set ws = ThisWorkbook.Worksheets("Sheet1")  'change Sheet1 to your worksheet
+
+    With ws
+        lastrow = .Range("A" & .Rows.Count).End(xlUp).Row   'get last row with data
+        'set ranges for date, fund code, category and value to be used later in code
+        Set dateRng = .Range("A2:A" & lastrow)
+        Set fundCodeRng = .Range("B2:B" & lastrow)
+        Set categoryRng = .Range("C2:C" & lastrow)
+        Set valueRng = .Range("D2:D" & lastrow)
+
+        'get unique records for date and fund coding combined together
+        For i = 2 To lastrow
+            dict(.Cells(i, 1).Value & "|" & .Cells(i, 2).Value) = dict(.Cells(i, 1).Value & "|" & .Cells(i, 2).Value)
+        Next
+
+        With .Range("F2").Resize(dict.Count)    'date and fund code will be displayed from cell F2
+            .Value = Application.Transpose(dict.Keys)
+            .TextToColumns Destination:=.Cells, DataType:=xlDelimited, Other:=True, OtherChar:="|"
+            .Offset(, 2).Resize(dict.Count).Value = Application.Transpose(dict.Items)
+        End With
+
+        'empty dictionary
+        dict.RemoveAll
+        Set dict = Nothing
+        Set dict = CreateObject("Scripting.Dictionary")
+
+        'get unique categories and display as header
+        rng = .Range("C1:C" & lastrow)
+        For i = 2 To UBound(rng)
+            dict(rng(i, 1) & "") = ""
+        Next
+        .Range("H1").Resize(1, UBound(dict.Keys()) + 1).Value = dict.Keys   'categories will be displayed from column H
+
+        tblLastRow = .Range("F" & Rows.Count).End(xlUp).Row             'get last row in new table
+        tblLastColumn = Cells(1, Columns.Count).End(xlToLeft).Column    'get last column of category in new table
+
+        'display corresponding values for date, fund code and category
+        For Each cel In .Range(.Cells(2, 8), .Cells(tblLastRow, tblLastColumn)) 'Cells(2, 8) represent Cell("H2")
+            cel.FormulaArray = "=IFERROR(INDEX(" & valueRng.Address & ",MATCH(1,(" & dateRng.Address & "=" & .Cells(cel.Row, 6) & ")*(" & fundCodeRng.Address & "=""" & .Cells(cel.Row, 7) & """)*(" & categoryRng.Address & "=""" & .Cells(1, cel.Column) & """),0)),"""")"
+            cel.Value = cel.Value
+        Next cel
+
+    End With
+
+    With Application
+        .ScreenUpdating = True
+        .Calculation = xlCalculationAutomatic
+    End With
+End Sub
