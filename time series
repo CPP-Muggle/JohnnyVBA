@@ -1,0 +1,614 @@
+Option Explicit
+
+Sub filterEquity(isEquityOnly As Boolean)
+    ''this sub is to clean the front holdings leaving out the equity part only
+    ''does not work with balanced fund for now
+    ''used in activeShare()
+    ''if isEquityOnly = False, Leaving Cash as one line and bonds as individual holdings
+    ''if isEquityOnly = True, Remove All non-equity and rebased for the equity part
+    
+    Dim lastrow As Long
+    
+    lastrow = Sheets("Webalto").Cells(Sheets("Webalto").Rows.count, 3).End(xlUp).row
+    Sheets("Webalto").Select
+    Range("D:I,M:AE,AI:AL").Select
+    Selection.Delete Shift:=xlToLeft
+    Sheets("Webalto").Range("A1").Select
+    Selection.AutoFilter
+    Sheets("Webalto").Range("$A$1:$I$" & lastrow).AutoFilter Field:=8, Criteria1:=Array( _
+        "Cash", "Forex", "MISCELLANEOUS"), Operator:=xlFilterValues
+    Sheets("Webalto").Range("$A$1:$I$" & lastrow).AutoFilter Field:=3, Criteria1:="<>Money Market", Operator:=xlFilterValues
+    
+    Sheets("Webalto").AutoFilter.Range.Offset(1).SpecialCells(xlCellTypeVisible).Rows(1).Select
+    Sheets("Webalto").Range(Selection, Selection.End(xlDown)).Select
+    Selection.Delete Shift:=xlUp
+    Sheets("Webalto").ShowAllData
+    
+    ''extra handling to rebased the equity part, hence removing all non-equity part
+    If isEquityOnly Then
+        ''remove bonds/money market top level
+        Sheets("Webalto").Range("$A$1:$I$" & lastrow).AutoFilter Field:=3, Criteria1:=Array("Bonds", "Money Market"), Operator:=xlFilterValues
+        Sheets("Webalto").AutoFilter.Range.Offset(1).SpecialCells(xlCellTypeVisible).Rows(1).Select
+        Sheets("Webalto").Range(Selection, Selection.End(xlDown)).Select
+        Selection.Delete Shift:=xlUp
+        Sheets("Webalto").ShowAllData
+        Sheets("Webalto").AutoFilterMode = False
+        
+        ''remove bonds/money market at second level
+        Sheets("Webalto").Range("$A$1:$I$" & lastrow).AutoFilter Field:=8, Criteria1:=Array("Bonds", "Money Market"), Operator:=xlFilterValues
+        Sheets("Webalto").AutoFilter.Range.Offset(1).SpecialCells(xlCellTypeVisible).Rows(1).Select
+        Sheets("Webalto").Range(Selection, Selection.End(xlDown)).Select
+        Selection.Delete Shift:=xlUp
+        Sheets("Webalto").ShowAllData
+        Sheets("Webalto").AutoFilterMode = False
+        
+        ''remove bonds etf
+        Sheets("Webalto").Range("$A$1:$I$" & lastrow).AutoFilter Field:=7, Criteria1:=Array("MUTUAL FUND EURO BOND"), Operator:=xlFilterValues
+        Sheets("Webalto").AutoFilter.Range.Offset(1).SpecialCells(xlCellTypeVisible).Rows(1).Select
+        Sheets("Webalto").Range(Selection, Selection.End(xlDown)).Select
+        Selection.Delete Shift:=xlUp
+        Sheets("Webalto").ShowAllData
+        Sheets("Webalto").AutoFilterMode = False
+        
+        lastrow = Sheets("Webalto").Cells(Sheets("Webalto").Rows.count, 3).End(xlUp).row
+        
+        
+        ''rebase
+        On Error Resume Next
+        Dim i As Long
+        For i = 2 To lastrow
+            If Sheets("webalto").Range("C" & i) <> "      Equities" Then
+                Sheets("webalto").Range("D" & i) = Sheets("webalto").Range("D" & i) / Application.WorksheetFunction.SumIfs(Sheets("Webalto").Range("D:D"), _
+                                                     Sheets("Webalto").Range("A:A"), Sheets("Webalto").Cells(i, 1), _
+                                                     Sheets("Webalto").Range("B:B"), Sheets("Webalto").Cells(i, 2), _
+                                                     Sheets("Webalto").Range("C:C"), "      Equities")
+                Sheets("webalto").Range("E" & i) = Sheets("webalto").Range("E" & i) / Application.WorksheetFunction.SumIfs(Sheets("Webalto").Range("E:E"), _
+                                                     Sheets("Webalto").Range("A:A"), Sheets("Webalto").Cells(i, 1), _
+                                                     Sheets("Webalto").Range("B:B"), Sheets("Webalto").Cells(i, 2), _
+                                                     Sheets("Webalto").Range("C:C"), "      Equities")
+                Sheets("webalto").Range("F" & i) = Sheets("webalto").Range("D" & i) - Sheets("webalto").Range("E" & i)
+            End If
+        Next i
+        
+    End If
+    
+    ''remove "Position", Equities" line
+    Sheets("Webalto").Range("$A$1:$I$" & lastrow).AutoFilter Field:=3, Criteria1:=Array("Positions", "Equities", "Bonds"), Operator:=xlFilterValues
+    Sheets("Webalto").AutoFilter.Range.Offset(1).SpecialCells(xlCellTypeVisible).Rows(1).Select
+    Sheets("Webalto").Range(Selection, Selection.End(xlDown)).Select
+    Selection.Delete Shift:=xlUp
+    Sheets("Webalto").ShowAllData
+    Sheets("Webalto").AutoFilterMode = False
+
+    Sheets("webalto").Cells(1, 3) = "Instrument"
+    
+    Sheets("Webalto").Cells(1, 1).Select
+End Sub
+
+Sub getActiveShare()
+    ''compute active share from front holdings (only work on Equity Fund)
+    If MsgBox("Compute Active Share from Front Holdings." & vbNewLine & "Continue?", vbYesNo) = vbNo Then
+            Exit Sub
+    End If
+    
+    ''initialise
+    If MsgBox("Load the Front Holdings?", vbYesNo) = vbYes Then
+            Sheets("Main").Cells(4, 5) = "Front Holdings"
+            Sheets("Main").Cells(4, 6) = "AMUNDI_HK_Risk_Analysis_PA"
+            Sheets("Main").Cells(4, 7) = "portfolioAnalysis"
+            Sheets("Main").Cells(4, 8) = "front_holdings"
+            Sheets("Main").Cells(4, 9) = 2
+            Sheets("Main").Cells(4, 10) = "Funds"
+            Sheets("Main").Cells(4, 11) = True
+    Else
+        Exit Sub
+    End If
+    
+    Dim isEquityOnly As Boolean
+    If MsgBox("Do you want to keep the cash/bonds? (Select No to rebase Equity)", vbYesNo) = vbYes Then
+        isEquityOnly = False
+    Else
+        isEquityOnly = True
+    End If
+    
+    Call importRaw
+    ''clean
+    Call filterEquity(isEquityOnly)
+    
+
+
+    ''fill in the last col with abs relative weight
+    Sheets("Webalto").Cells(1, 10) = "Abs of Active Weight"
+    Dim i As Long
+    For i = 2 To Sheets("Webalto").Cells(Sheets("Webalto").Rows.count, 1).End(xlUp).row
+        Sheets("Webalto").Cells(i, 10) = Abs(Sheets("Webalto").Cells(i, 4) - Sheets("Webalto").Cells(i, 5))
+    Next i
+    
+    Call initialise_sheet("Active_Share")
+    
+    Sheets("Webalto").Range("A:B").Copy Sheets("Active_Share").Cells(1, 1)
+    Sheets("Active_Share").Range("A:B").RemoveDuplicates Columns:=Array(1, 2), Header:=xlYes
+     
+    Sheets("Active_Share").Cells(1, 3) = "Active Share"
+   
+    ''key formula
+    For i = 2 To Sheets("Active_Share").Cells(Sheets("Active_Share").Rows.count, 1).End(xlUp).row
+        Sheets("Active_Share").Cells(i, 3) = (1 + Application.WorksheetFunction.SumIfs(Sheets("Webalto").Range("J:J"), _
+                                                 Sheets("Webalto").Range("A:A"), Sheets("Active_Share").Cells(i, 1), _
+                                                 Sheets("Webalto").Range("B:B"), Sheets("Active_Share").Cells(i, 2)) _
+                                             - Application.WorksheetFunction.SumIfs(Sheets("Webalto").Range("E:E"), _
+                                                 Sheets("Webalto").Range("A:A"), Sheets("Active_Share").Cells(i, 1), _
+                                                 Sheets("Webalto").Range("B:B"), Sheets("Active_Share").Cells(i, 2))) / 2
+    Next i
+    
+    Call insertFundName("Active_Share")
+    Sheets("Active_Share").Range("D:D").NumberFormat = "0.00%"
+End Sub
+
+Sub getBarraOne()
+    ''get barraone data
+    If MsgBox("Barraone data." & vbNewLine & "Continue?", vbYesNo) = vbNo Then
+            Exit Sub
+    End If
+    
+    ''initialise
+    If MsgBox("Do you want to (re)load the BarraOne?", vbYesNo) = vbYes Then
+            Sheets("Main").Cells(4, 5) = "BarraOne: Market Risk by stock"
+            Sheets("Main").Cells(4, 6) = "AMUNDI_HK_Risk_Analysis_PA"
+            Sheets("Main").Cells(4, 7) = "portfolioAnalysis"
+            Sheets("Main").Cells(4, 8) = "BarraOne_+Risk+decomposition+by+Stock"
+            Sheets("Main").Cells(4, 9) = -3
+            Sheets("Main").Cells(4, 10) = "Funds"
+            Sheets("Main").Cells(4, 11) = True
+            Call importRaw
+    Else
+            Exit Sub
+    End If
+    
+    Call initialise_sheet("BarraOne")
+    Call sbDeleteASheet("BarraOne")
+    Sheets("Webalto").Name = "BarraOne"
+    ''clean
+    Sheets("BarraOne").Range("C:C,G:G").Delete Shift:=xlToLeft
+    
+
+    ''further cleaning
+    ''replace x by x/100 and populate fimd ma,e
+    Dim i As Integer
+    For i = 2 To Sheets("BarraOne").Cells(Sheets("BarraOne").Rows.count, 1).End(xlUp).row
+        Sheets("BarraOne").Cells(i, 3) = Sheets("BarraOne").Cells(i, 3) / 100   ''active total risk
+        Sheets("BarraOne").Cells(i, 5) = Sheets("BarraOne").Cells(i, 5) / 100   ''total risk
+    Next i
+    
+    Call insertFundName("BarraOne")
+    Sheets("BarraOne").Range("D:D,F:F").NumberFormat = "0.00%"
+    Sheets("BarraOne").Range("E:E").NumberFormat = "0.00"
+
+End Sub
+
+Sub getSectorAllocation()
+    
+    If MsgBox("Sector Allocation Global Analysis." & vbNewLine & "Continue?", vbYesNo) = vbNo Then
+            Exit Sub
+    End If
+    
+    ''initialise
+    If MsgBox("Do you want to (re)load the Front Holdings?", vbYesNo) = vbYes Then
+            Sheets("Main").Cells(4, 5) = "Sector Allocation (Global)"
+            Sheets("Main").Cells(4, 6) = "AMUNDI_HK_Risk_Analysis"
+            Sheets("Main").Cells(4, 7) = "globalAnalysis"
+            Sheets("Main").Cells(4, 8) = "Equity+Sectors+Allocation"
+            Sheets("Main").Cells(4, 9) = -2
+            Sheets("Main").Cells(4, 10) = "HK-RISK-GA"
+            Sheets("Main").Cells(4, 11) = False
+            Call importRaw
+        Else
+            Exit Sub
+    End If
+    
+    Call initialise_sheet("Sector_Allocation")
+    Call sbDeleteASheet("Sector_Allocation")
+    Sheets("Transformed").Name = "Sector_Allocation"
+    Sheets("Sector_Allocation").Cells(1, 3) = "Sector"
+    
+    Call insertFundName("Sector_Allocation")
+    Sheets("Sector_Allocation").Range("E:G").NumberFormat = "0.00%"
+    
+End Sub
+
+
+
+Sub getAssetClassAllocation()
+    If MsgBox("Asset Class Allocation." & vbNewLine & "Continue?", vbYesNo) = vbNo Then
+            Exit Sub
+    End If
+    
+    ''initialise
+    If MsgBox("Do you want to (re)load the Front Holdings?", vbYesNo) = vbYes Then
+            Sheets("Main").Cells(4, 5) = "Front Holdings"
+            Sheets("Main").Cells(4, 6) = "AMUNDI_HK_Risk_Analysis_PA"
+            Sheets("Main").Cells(4, 7) = "portfolioAnalysis"
+            Sheets("Main").Cells(4, 8) = "front_holdings"
+            Sheets("Main").Cells(4, 9) = -2
+            Sheets("Main").Cells(4, 10) = "Funds"
+            Sheets("Main").Cells(4, 11) = True
+            Call importRaw
+    Else
+            Exit Sub
+    End If
+    
+    Call initialise_sheet("Asset_Class_Allocation")
+    Call sbDeleteASheet("Asset_Class_Allocation")
+    Sheets("Webalto").Name = "Asset_Class_Allocation"
+    ''remove useless information
+    Sheets("Asset_Class_Allocation").Range("A1").AutoFilter Field:=3, Criteria1:="Positions"
+
+    Sheets("Asset_Class_Allocation").Range(Sheets("Asset_Class_Allocation").AutoFilter.Range.Offset(1).SpecialCells(xlCellTypeVisible).Rows(1), _
+                            Sheets("Asset_Class_Allocation").AutoFilter.Range.Offset(1).SpecialCells(xlCellTypeVisible).Rows(1).End(xlDown)).Delete Shift:=xlUp
+
+    Sheets("Asset_Class_Allocation").AutoFilterMode = False
+
+    
+    Sheets("Asset_Class_Allocation").Range("D:I,M:AL").Delete Shift:=xlToLeft
+    Sheets("Asset_Class_Allocation").Cells(1, 3) = "Asset Class"
+    
+    Dim i As Long
+    For i = 2 To Sheets("Asset_Class_Allocation").Cells(Sheets("Asset_Class_Allocation").Rows.count, 1).End(xlUp).row
+        Sheets("Asset_Class_Allocation").Cells(i, 3) = Trim(Sheets("Asset_Class_Allocation").Cells(i, 3))
+    Next i
+    
+    Call insertFundName("Asset_Class_Allocation")
+    Sheets("Asset_Class_Allocation").Range("E:G").NumberFormat = "0.00%"
+    
+    
+End Sub
+
+Sub getTurnover()
+    ''since turnover is a monthly static number, it has a one day lag when uploaded to webalto
+    ''eg 31/11/2016 data is still actually the turnover number for october
+    
+    ''this sub is written to address and correct this issue
+    
+    If MsgBox("Turnover." & vbNewLine & "Continue?", vbYesNo) = vbNo Then
+            Exit Sub
+    End If
+    
+    ''initialise
+    If MsgBox("Do you want to (re)load the Turnover?", vbYesNo) = vbYes Then
+            Sheets("Main").Cells(4, 5) = "Turnover"
+            Sheets("Main").Cells(4, 6) = "AMUNDI_HK_Risk_Analysis"
+            Sheets("Main").Cells(4, 7) = "globalAnalysis"
+            Sheets("Main").Cells(4, 8) = "Turnover"
+            Sheets("Main").Cells(4, 9) = -2
+            Sheets("Main").Cells(4, 10) = "HK-RISK-GA"
+            Sheets("Main").Cells(4, 11) = True
+            Call importRaw
+    Else
+            Exit Sub
+    End If
+
+    Call initialise_sheet("Turnover")
+    Call sbDeleteASheet("Turnover")
+    Sheets("Webalto").Name = "Turnover"
+    
+    Sheets("Turnover").Rows(1).Delete
+    Sheets("Turnover").Range("B:C,F:F,H:P").Delete
+    Call removeFund("Turnover", 2, 2, False)
+
+    Dim i As Long
+    For i = 2 To Sheets("Turnover").Cells(Sheets("Turnover").Rows.count, 1).End(xlUp).row
+        Sheets("Turnover").Cells(i, 1) = Format(DateSerial(Left(Sheets("Turnover").Cells(i, 1), 4), Mid(Sheets("Turnover").Cells(i, 1), 5, 2), 1) - 1, "yyyymmdd")
+    Next i
+    
+    Sheets("Turnover").Range("$A$1:$E$" & Sheets("Turnover").Cells(Sheets("Turnover").Rows.count, 1).End(xlUp).row).RemoveDuplicates Columns:=Array(1, 2), Header:=xlYes
+    
+    Call insertFundName("Turnover")
+    Sheets("Turnover").Range("D:E").NumberFormat = "0.00%"
+    
+End Sub
+
+
+Sub getLiquidityWorstRanked()
+    If MsgBox("Liquidity Worst Ranked Positions." & vbNewLine & "Continue?", vbYesNo) = vbNo Then
+            Exit Sub
+    End If
+    
+    ''initialise
+    If MsgBox("Do you want to (re)load the Liquidity Worst Ranked Positions?", vbYesNo) = vbYes Then
+            Sheets("Main").Cells(4, 5) = "Liquidity_+Worst-Ranked+Positions"
+            Sheets("Main").Cells(4, 6) = "AMUNDI_HK_Risk_Analysis"
+            Sheets("Main").Cells(4, 7) = "globalAnalysis"
+            Sheets("Main").Cells(4, 8) = "Liquidity_+Worst-Ranked+Positions"
+            Sheets("Main").Cells(4, 9) = -2
+            Sheets("Main").Cells(4, 10) = "HK-RISK-GA"
+            Sheets("Main").Cells(4, 11) = True
+            Call importRaw
+    Else
+            Exit Sub
+    End If
+    
+    Call initialise_sheet("Liquidity_Worst_Ranked")
+    Call sbDeleteASheet("Liquidity_Worst_Ranked")
+    Sheets("Webalto").Name = "Liquidity_Worst_Ranked"
+        
+    Call removeFund("Liquidity_Worst_Ranked", 16, 2, False)
+    
+    Sheets("Liquidity_Worst_Ranked").Cells(1, 2) = "Fund Code"
+    Sheets("Liquidity_Worst_Ranked").Cells(1, 3) = "Instrument Name"
+    
+    Dim i As Long
+    For i = 2 To Sheets("Liquidity_Worst_Ranked").Cells(Sheets("Liquidity_Worst_Ranked").Rows.count, 1).End(xlUp).row
+        Sheets("Liquidity_Worst_Ranked").Cells(i, 2) = Sheets("Liquidity_Worst_Ranked").Cells(i, 16)
+    Next i
+    
+    Call insertFundName("Liquidity_Worst_Ranked")
+    Sheets("Liquidity_Worst_Ranked").Range("G:G").NumberFormat = "0.00%"
+    
+End Sub
+
+Sub getCountryAllocation()
+    
+    If MsgBox("Country Allocation Global Analysis." & vbNewLine & "Continue?", vbYesNo) = vbNo Then
+            Exit Sub
+    End If
+    
+    ''initialise
+    If MsgBox("Do you want to (re)load the Front Holdings?", vbYesNo) = vbYes Then
+            Sheets("Main").Cells(4, 5) = "Country Allocation (Global)"
+            Sheets("Main").Cells(4, 6) = "AMUNDI_HK_Risk_Analysis"
+            Sheets("Main").Cells(4, 7) = "globalAnalysis"
+            Sheets("Main").Cells(4, 8) = "Equity+Country+Allocation"
+            Sheets("Main").Cells(4, 9) = -2
+            Sheets("Main").Cells(4, 10) = "HK-RISK-GA"
+            Sheets("Main").Cells(4, 11) = False
+            Call importRaw
+    Else
+            Exit Sub
+    End If
+    
+    Call initialise_sheet("Country_Allocation")
+    Call sbDeleteASheet("Country_Allocation")
+    Sheets("Transformed").Name = "Country_Allocation"
+    
+    Sheets("Country_Allocation").Cells(1, 3) = "Country"
+    Call insertFundName("Country_Allocation")
+    Sheets("Country_Allocation").Range("E:G").NumberFormat = "0.00%"
+    
+End Sub
+
+Sub getAssetClassAllocationBalanced()
+   
+    If MsgBox("Global+Allocation+by+Asset+Class." & vbNewLine & "Continue?", vbYesNo) = vbNo Then
+            Exit Sub
+    End If
+    
+    ''initialise
+    If MsgBox("Do you want to (re)load the Front Holdings?", vbYesNo) = vbYes Then
+            Sheets("Main").Cells(4, 5) = "Global+Allocation+by+Asset+Class"
+            Sheets("Main").Cells(4, 6) = "AMUNDI_HK_Risk_Analysis"
+            Sheets("Main").Cells(4, 7) = "Global_Reports_2"
+            Sheets("Main").Cells(4, 8) = "Global+Allocation+by+Asset+Class"
+            Sheets("Main").Cells(4, 9) = -2
+            Sheets("Main").Cells(4, 10) = "HK-RISK-GA-BALANCED"
+            Sheets("Main").Cells(4, 11) = False
+            Call importRaw
+    Else
+            Exit Sub
+    End If
+     
+    Call initialise_sheet("Asset_Class_Allocation_Balanced")
+    Call sbDeleteASheet("Asset_Class_Allocation_Balanced")
+    Sheets("Transformed").Name = "Asset_Class_Allocation_Balanced"
+    
+    Sheets("Asset_Class_Allocation_Balanced").Cells(1, 3) = "Asset Class"
+    Call insertFundName("Asset_Class_Allocation_Balanced")
+    Sheets("Asset_Class_Allocation_Balanced").Range("E:G").NumberFormat = "0.00%"
+
+End Sub
+
+Sub getNumberOfSecurities()
+    If MsgBox("Number of Securities." & vbNewLine & "Continue?", vbYesNo) = vbNo Then
+            Exit Sub
+    End If
+    
+    ''initialise
+    If MsgBox("Do you want to (re)load the Portfolio Information?", vbYesNo) = vbYes Then
+            Sheets("Main").Cells(4, 5) = "Portfolio Information"
+            Sheets("Main").Cells(4, 6) = "AMUNDI_HK_Risk_Analysis_PA"
+            Sheets("Main").Cells(4, 7) = "portfolioAnalysis"
+            Sheets("Main").Cells(4, 8) = "Portfolio+Information"
+            Sheets("Main").Cells(4, 9) = -2
+            Sheets("Main").Cells(4, 10) = "Funds"
+            Sheets("Main").Cells(4, 11) = True
+            Call importRaw
+    Else
+            Exit Sub
+    End If
+    
+    Call initialise_sheet("Number_Of_Securities")
+    Call sbDeleteASheet("Number_Of_Securities")
+    Sheets("Webalto").Name = "Number_Of_Securities"
+    
+    Sheets("Number_Of_Securities").Range("C1") = "Attribute"
+    Sheets("Number_Of_Securities").Range("D1") = "NumberOfSecurities"
+    
+    Sheets("Number_Of_Securities").Range("A1").AutoFilter Field:=3, Criteria1:="<>Number of Securities"
+
+    Sheets("Number_Of_Securities").Range(Sheets("Number_Of_Securities").AutoFilter.Range.Offset(1).SpecialCells(xlCellTypeVisible).Rows(1), _
+                            Sheets("Number_Of_Securities").AutoFilter.Range.Offset(1).SpecialCells(xlCellTypeVisible).Rows(1).End(xlDown)).Delete Shift:=xlUp
+    
+    Sheets("Number_Of_Securities").ShowAllData
+    Sheets("Number_Of_Securities").AutoFilterMode = False
+    Sheets("Number_Of_Securities").Range("C:C").Delete
+    
+    Call insertFundName("Number_Of_Securities")
+    
+End Sub
+
+
+Sub getNumberOfSecuritiesAndNonBenchEx()
+    ''compute active share from front holdings (only work on Equity Fund)
+    If MsgBox("Count Number of Securities from holdings" & vbNewLine & "Continue?", vbYesNo) = vbNo Then
+            Exit Sub
+    End If
+    
+    ''initialise
+    If MsgBox("Load the Front Holdings?", vbYesNo) = vbYes Then
+            Sheets("Main").Cells(4, 5) = "Front Holdings"
+            Sheets("Main").Cells(4, 6) = "AMUNDI_HK_Risk_Analysis_PA"
+            Sheets("Main").Cells(4, 7) = "portfolioAnalysis"
+            Sheets("Main").Cells(4, 8) = "front_holdings"
+            Sheets("Main").Cells(4, 9) = 2
+            Sheets("Main").Cells(4, 10) = "Funds"
+            Sheets("Main").Cells(4, 11) = True
+    Else
+        Exit Sub
+    End If
+    
+    
+    Dim isKeepMutualfund As Boolean
+    Dim msgboxTemp As Integer
+    msgboxTemp = MsgBox("Keep Mutual Fund?", vbYesNo)
+    
+    If msgboxTemp = vbYes Then
+        isKeepMutualfund = True
+    ElseIf msgboxTemp = vbNo Then
+        isKeepMutualfund = False
+    Else
+        Exit Sub
+    End If
+    
+    Call importRaw
+    
+    Call filterEquity(False) ''we keep everything
+    
+    ''remove cash
+    ''remove bonds/money market top level
+    Dim lastrow As Long
+    lastrow = Sheets("Webalto").Cells(Sheets("Webalto").Rows.count, 3).End(xlUp).row
+    Sheets("Webalto").Range("$A$1:$I$" & lastrow).AutoFilter Field:=3, Criteria1:=Array("Bonds", "Money Market"), Operator:=xlFilterValues
+    Sheets("Webalto").AutoFilter.Range.Offset(1).SpecialCells(xlCellTypeVisible).Rows(1).Select
+    Sheets("Webalto").Range(Selection, Selection.End(xlDown)).Select
+    Selection.Delete Shift:=xlUp
+    Sheets("Webalto").ShowAllData
+    Sheets("Webalto").AutoFilterMode = False
+    
+    ''remove 0% weight
+    lastrow = Sheets("Webalto").Cells(Sheets("Webalto").Rows.count, 3).End(xlUp).row
+    Sheets("Webalto").Range("$A$1:$I$" & lastrow).AutoFilter Field:=4, Criteria1:="0", Operator:=xlFilterValues
+    Sheets("Webalto").AutoFilter.Range.Offset(1).SpecialCells(xlCellTypeVisible).Rows(1).Select
+    Sheets("Webalto").Range(Selection, Selection.End(xlDown)).Select
+    Selection.Delete Shift:=xlUp
+    Sheets("Webalto").ShowAllData
+    Sheets("Webalto").AutoFilterMode = False
+    
+    ''remove mutual fund
+    If Not isKeepMutualfund Then
+        lastrow = Sheets("Webalto").Cells(Sheets("Webalto").Rows.count, 3).End(xlUp).row
+        Sheets("Webalto").Range("$A$1:$I$" & lastrow).AutoFilter Field:=8, Criteria1:=Array("Mutual funds"), Operator:=xlFilterValues
+        Sheets("Webalto").AutoFilter.Range.Offset(1).SpecialCells(xlCellTypeVisible).Rows(1).Select
+        Sheets("Webalto").Range(Selection, Selection.End(xlDown)).Select
+        Selection.Delete Shift:=xlUp
+        Sheets("Webalto").ShowAllData
+        Sheets("Webalto").AutoFilterMode = False
+    End If
+    
+    Sheets("Webalto").Cells(1, 1).Activate
+        
+    Call initialise_sheet("Result")
+    
+    Sheets("Webalto").Range("A:B").Copy Sheets("Result").Cells(1, 1)
+    Sheets("Result").Range("A:B").RemoveDuplicates Columns:=Array(1, 2), Header:=xlYes
+     
+    Sheets("Result").Cells(1, 3) = "Number Of Securities"
+    Sheets("Result").Cells(1, 4) = "Out of Benchmark Exposure"
+    ''key formula
+    Dim i As Long
+    For i = 2 To Sheets("Result").Cells(Sheets("Result").Rows.count, 1).End(xlUp).row
+        Sheets("Result").Cells(i, 3) = Application.WorksheetFunction.CountIfs(Sheets("Webalto").Range("A:A"), Sheets("Result").Cells(i, 1), _
+                                                                                    Sheets("Webalto").Range("B:B"), Sheets("Result").Cells(i, 2))
+                                                                                    
+        Sheets("Result").Cells(i, 4) = Application.WorksheetFunction.SumIfs(Sheets("Webalto").Range("D:D"), _
+                                                                                    Sheets("Webalto").Range("A:A"), Sheets("Result").Cells(i, 1), _
+                                                                                    Sheets("Webalto").Range("B:B"), Sheets("Result").Cells(i, 2), _
+                                                                                    Sheets("Webalto").Range("E:E"), vbNullString)
+                                                                                    
+    Next i
+    
+    Call insertFundName("Result")
+    
+    Sheets("Result").Range("E:E").NumberFormat = "0.00%"
+
+End Sub
+
+Sub insertFundName(sheetName As String)
+    Sheets(sheetName).Columns("C:C").Insert Shift:=xlToRight, CopyOrigin:=xlFormatFromLeftOrAbove
+    Sheets(sheetName).Cells(1, 2) = "Fund code"
+    Sheets(sheetName).Cells(1, 3) = "Fund Name"
+    Dim i As Long
+    For i = 2 To Sheets(sheetName).Cells(Sheets(sheetName).Rows.count, 1).End(xlUp).row
+        Sheets(sheetName).Cells(i, 3) = fundName(Sheets(sheetName).Cells(i, 2))
+    Next i
+    Sheets(sheetName).Cells.EntireColumn.AutoFit
+End Sub
+
+Sub transformTemp(sheetsname As String)
+
+    ''this code is to transform the global view into columnal view,
+    ''the reason is for easy computation and debug
+    ''this work for country and sector allocation
+    
+    Dim d As Long
+    d = Sheets("Webalto").Cells(1, 1).End(xlDown).row
+    
+    
+    Dim i As Long
+    Dim j As Long
+    Dim col As Long
+    Dim row As Long
+    Dim total_row As Long
+    
+    Dim ddate As Long
+    Dim fundCode As String
+    Dim countryOrSector As String
+    Dim ptf As Double
+    Dim ref As Double
+    Dim active As Double
+    
+    ''row is not capped
+    row = Sheets("Webalto").Cells(Sheets("Webalto").Rows.count, 1).End(xlUp).row
+
+    col = Sheets("Webalto").Cells(1, Sheets("Webalto").Columns.count).End(xlToLeft).Column
+    
+    
+    Dim k As Long
+    
+    k = 1
+    While d < row
+
+        For i = d + 1 To Sheets("Webalto").Cells(d, 1).End(xlDown).row
+            For j = 6 To col Step 3
+                If Sheets("Webalto").Cells(i, j) <> "" Or Sheets("Webalto").Cells(i, j + 1) <> "" Then
+                    Sheets(sheetName).Cells(k, 1) = Sheets("Webalto").Cells(i, 1)
+                    Sheets(sheetName).Cells(k, 2) = Sheets("Webalto").Cells(i, 4)
+                    Sheets(sheetName).Cells(k, 3) = Sheets("Webalto").Cells(d - 1, j)
+                    Sheets(sheetName).Cells(k, 4) = Sheets("Webalto").Cells(i, j)
+                    Sheets(sheetName).Cells(k, 5) = Sheets("Webalto").Cells(i, j + 1)
+                    Sheets(sheetName).Cells(k, 6) = Sheets("Webalto").Cells(i, j + 2)
+                    k = k + 1
+                End If
+            Next j
+        Next i
+        
+        d = Sheets("Webalto").Cells(d, 1).End(xlDown).End(xlDown).row
+    Wend
+    
+    Sheets(sheetName).Rows(1).Insert Shift:=xlDown
+    Sheets(sheetName).Cells(1, 1) = Sheets("Webalto").Cells(2, 1)
+    Sheets(sheetName).Cells(1, 2) = Sheets("Webalto").Cells(2, 4)
+    Sheets(sheetName).Cells(1, 3) = "Attribute"
+    Sheets(sheetName).Cells(1, 4) = Sheets("Webalto").Cells(2, 6)
+    Sheets(sheetName).Cells(1, 5) = Sheets("Webalto").Cells(2, 6 + 1)
+    Sheets(sheetName).Cells(1, 6) = Sheets("Webalto").Cells(2, 6 + 2)
+    
+End Sub
