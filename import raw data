@@ -1,0 +1,441 @@
+''''20160317
+'''by Kevin Chan, Amundi HK Risk Team
+'''This is an attempt to write an alternative to ART tool for better exp
+'''Adding more flexibly for user to modify parameter
+'''easy adjustment to better fit their report needs
+'''ability to check the raw data for errors
+
+Option Explicit
+Sub runImportRaw()
+    ''this sub is to force the screen to refresh after getting data from webalto
+    Call importRaw
+    Application.ScreenUpdating = False
+    Application.ScreenUpdating = True
+End Sub
+
+Sub importRaw()
+        Dim isGA As Boolean
+        isGA = (LCase(Right(Left(Sheets("main").Range("J4"), 7), 4)) = "risk")
+        
+        If Sheets("Main").Range("A3") = "" And Not (isGA) Then
+            MsgBox "Please fill in the Fund Codes", vbCritical
+            End
+        End If
+            
+        If Sheets("Main").Range("C3") = "" Then
+            MsgBox "Please fill in Dates.", vbCritical
+            End
+        End If
+        
+        If Sheets("Main").Range("H4") = "" Then
+            MsgBox "Please select the report.", vbCritical
+            End
+        End If
+
+        
+        'example url  http://webalto.sits.credit-agricole.fr/reporting/nodecorate/transfo.action?report=Active_Share&date=20160219&scenario=portfolioAnalysis&occurrence=90293&view=Active+Share+Ratio+by+Holdings&format=html&expand=-2
+        Dim Report As String
+        Dim ddate As String
+        Dim scenario As String
+        Dim occurrence As String
+        Dim view As String
+        Dim expand As String
+        Dim entity As String
+        Dim import_url As String
+        Dim target_range As Range
+        
+       
+        If isGA And (view = "Currency+Allocation" Or view = "Equity+Country+Allocation" Or view = "Equity+Sectors+Allocation" Or _
+            view = "Equity+Market+Capitalization+Allocation" Or view = "Equity+Allocation+by+Risk+country" Or view = "Equity+Allocation+by+MSCI+sectors" Or view = "Global+Allocation+by+Asset+Class") And Sheets("main").Range("K4") Then
+            
+            Dim isRemoveBlankRows
+            isRemoveBlankRows = MsgBox("You are going to import data from Global Analysis with Blank Rows REMOVED" & vbNewLine & "YES to continue, NO to keep the blank rows (for globalToColumnal)", vbYesNoCancel)
+            If isRemoveBlankRows = vbNo Then
+                Sheets("main").Range("K4") = False
+            ElseIf isRemoveBlankRows = vbCancel Then
+                Exit Sub
+            End If
+
+        End If
+
+
+
+        Report = Worksheets("main").Range("F4")
+        
+        Call initialise_sheet("Webalto")
+        
+        Set target_range = Worksheets("Webalto").Range("C1")
+        
+        target_range.Activate
+        
+        Dim h As Integer
+        Dim k As Integer
+        
+        
+        For h = 3 To Sheets("Main").Cells(Sheets("Main").Rows.count, 3).End(xlUp).row
+
+                ddate = Sheets("Main").Cells(h, 3).Text
+                
+                For k = 3 To Application.Max(Sheets("main").Cells(Sheets("Main").Rows.count, 1).End(xlUp).row, 3)
+                
+                    occurrence = Sheets("main").Cells(k, 1).Text & ""
+
+                    ''check if GA or PA
+                    ''this part has a link to the end of this for loop
+
+                    If isGA Then
+                        occurrence = Sheets("main").Range("J4").Text
+                        
+                        On Error Resume Next
+                        Worksheets("code_ref").Columns(1).NumberFormat = "@"
+                        entity = Application.WorksheetFunction.VLookup(occurrence, Worksheets("code_ref").Range("A:C"), 3, False)
+                        If Err.Number <> 0 Then
+                            ''we assume it is from HK if not specify otherwise
+                            entity = "HK"
+                        End If
+                    On Error GoTo 0
+                    
+                    Else
+                        On Error Resume Next
+                        Worksheets("code_ref").Columns(1).NumberFormat = "@"
+                        entity = Application.WorksheetFunction.VLookup(occurrence, Worksheets("code_ref").Range("A:C"), 3, False)
+                        If Err.Number <> 0 Then
+                            ''we assume it is from HK if not specify otherwise
+                            entity = "HK"
+                        End If
+                    On Error GoTo 0
+                    
+                    End If
+                                       
+                    Report = Worksheets("main").Range("F4")
+                    
+                    ''check HK or SG!!!
+                    ''very important
+                
+                    If Left(Report, 6) = "AMUNDI" And Not isGA Then
+                        Report = "AMUNDI_" & entity & Right(Report, Len(Report) - 9)
+                    End If
+                    
+                    
+                    scenario = Worksheets("main").Range("G4")
+                    view = Worksheets("main").Range("H4")
+                    expand = Worksheets("main").Range("I4")
+                    
+                    import_url = "http://webalto.sits.credit-agricole.fr/reporting/nodecorate/transfo.action?" & _
+                                "report=" & Report & _
+                                "&date=" & ddate & _
+                                "&scenario=" & scenario & _
+                                "&occurrence=" & occurrence & _
+                                "&view=" & view & _
+                                "&format=html&" & _
+                                "expand=" & expand
+
+                    
+                    ''set up connection
+                    On Error Resume Next
+                    With ActiveSheet.QueryTables.Add(Connection:="URL;" & import_url, Destination:=target_range)
+                        .PreserveFormatting = True
+                        .Refresh BackgroundQuery:=False
+                        .MaintainConnection = False
+                        .Name = occurrence & ddate
+                    End With
+                    'delete the connection to free up memoery
+                    ActiveSheet.QueryTables(1).Delete
+                  
+                    If target_range <> "" Then
+                        target_range = ""
+    
+                        'some cleaning of the data
+                        Dim i As Long
+                        Dim numberOfRows As Long
+                        Dim no_of_row As Long
+                    
+                        no_of_row = WorksheetFunction.Max(Range("C" & Rows.count).End(xlUp).row, Range("D" & Rows.count).End(xlUp).row)
+                        
+                        numberOfRows = no_of_row - target_range.row + 0
+                        
+                        ''a new way to populate date and code
+                        Dim start As Integer
+                        
+                        If target_range.Offset(2, 0) = "" Then
+                                start = 2
+                            Else
+                                start = 1
+                        End If
+                        
+                        target_range.Offset(start, -2) = "Date"
+                        target_range.Offset(start, -1) = "Fund Code"
+                        start = start + 1
+                        
+                        For i = start To numberOfRows
+                            target_range.Offset(i, -2) = ddate
+                            target_range.Offset(i, -1) = occurrence
+                        Next i
+
+                        Set target_range = target_range.Offset(numberOfRows + 1, 0)
+                        target_range.Select
+                    End If
+                
+                    Sheets("main").Range("E6") = import_url
+                
+                    ''check if GA or PA
+                    If isGA Then
+                        Exit For
+                    End If
+                
+                Next k
+        Next h
+
+        ''clean col with empty enties on ith column
+        If Sheets("main").Range("K4") Then
+                If Sheets("Webalto").Cells(3, 3) = "" Then
+                    Call remove_empty_entires("webalto", 3, 4)
+                Else
+                    Call remove_empty_entires("webalto", 3, 3)
+                End If
+        End If
+        
+        Rows("1:1").Delete
+        Cells(1, 1).Select
+        
+        If isGA And (view = "Currency+Allocation" Or view = "Equity+Country+Allocation" Or view = "Equity+Sectors+Allocation" Or _
+            view = "Equity+Market+Capitalization+Allocation" Or view = "Equity+Allocation+by+Risk+country" Or view = "Equity+Allocation+by+MSCI+sectors" Or view = "Global+Allocation+by+Asset+Class") Then
+            
+            Call globalToColumnal
+            
+        End If
+
+End Sub
+
+Sub sbDeleteASheet(sheet_name As String)
+        'Stopping Application Alerts
+        Application.DisplayAlerts = False
+        Sheets(sheet_name).Delete
+        Application.DisplayAlerts = True
+End Sub
+
+Sub initialise_sheet(sheetName As String)
+    'check if such sheet exists, create one if not
+    'if such sheet exists, clear cells for
+
+        
+    Dim isExists As Boolean
+    Dim i As Integer
+    
+    isExists = False
+    For i = 1 To Worksheets.count
+        If Worksheets(i).Name = sheetName Then
+            isExists = True
+        End If
+    Next i
+    
+    If isExists Then
+        Call sbDeleteASheet(sheetName)
+    End If
+    
+    Worksheets.Add.Name = sheetName
+    
+    Sheets(sheetName).Activate
+End Sub
+
+Sub remove_empty_entires(sheetName As String, col_number As Integer, startingRow As Long)
+
+    'this takes col number as input and scan through all the entries in that col and delete if empty
+    
+    Dim count As Long
+    Dim numberOfRows As Long
+    Dim i As Long
+    
+    i = startingRow
+    count = 0
+    numberOfRows = Sheets(sheetName).Range("A" & Rows.count).End(xlUp).row
+    While count < numberOfRows
+
+        If Sheets(sheetName).Cells(i, col_number) = "" Then
+            Sheets(sheetName).Rows(i).EntireRow.Delete
+        Else: i = i + 1
+        End If
+        count = count + 1
+    Wend
+End Sub
+
+Sub unhideAllSheets()
+    'Unhide all sheets in workbook.
+    Dim ws As Worksheet
+    
+    For Each ws In ActiveWorkbook.Worksheets
+        ws.Visible = xlSheetVisible
+    Next ws
+
+End Sub
+
+Sub populateDays()
+    
+    Dim startDate As Long
+    Dim endDate As Long
+    
+    Dim Ans As Variant
+    
+    Ans = InputBox("Enter a startDate (yyyymmdd)." & vbCrLf & vbCrLf & _
+            "enter a number between 1 and 262 for last N days" & vbCrLf & vbCrLf & _
+            "Or Enter ""-1"" for all available data (1 year).")
+            
+    If Ans = -1 Then
+        Call filterDates("AMUNDI_HK_Risk_Analysis_PA", "day", 262)
+        Exit Sub
+        
+    ElseIf Ans > 0 And Ans <= 262 Then
+        Call filterDates("AMUNDI_HK_Risk_Analysis_PA", "day", CLng(Ans))
+        Exit Sub
+    
+    ElseIf Ans = "" Or Ans < 20150000 Or Ans > 21000000 Then
+        Exit Sub
+        
+    Else
+        startDate = Ans
+        Ans = InputBox("Enter a endDate (yyyymmdd)")
+        If Ans = "" Or Ans < 20150000 Or Ans > 21000000 Or Ans < startDate Then Exit Sub
+        endDate = Ans
+        Call filterDates("AMUNDI_HK_Risk_Analysis_PA", "twoDates", startDate, endDate)
+        
+    End If
+
+End Sub
+
+Sub populateMonths()
+    
+    Dim n As Long
+    Dim temp As Variant
+    
+    temp = InputBox("For the last n months (including last available date):")
+    
+    If temp = "" Then Exit Sub
+    
+    n = temp
+    
+    Call filterDates("AMUNDI_HK_Risk_Analysis_PA", "month", n)
+    
+
+End Sub
+
+Sub populateWeeks()
+    
+    Dim n As Long
+    Dim temp As Variant
+    
+    temp = InputBox("For the last n weeks (including last available date):")
+    
+    If temp = "" Then Exit Sub
+    
+    n = temp
+    
+    Call filterDates("AMUNDI_HK_Risk_Analysis_PA", "week", n)
+    
+
+End Sub
+
+Sub deleteAllPivotTable()
+    Dim WB As Workbook, ws As Worksheet, PT As PivotTable
+    If ActiveWorkbook Is Nothing Then
+        MsgBox "There is no active workbook!", vbExclamation, "ERROR!"
+        Exit Sub
+    End If
+    If MsgBox("Delete ALL pivot tables in the active workbook?", _
+        vbYesNo + vbDefaultButton2, "DELETE ALL?") = vbNo Then Exit Sub
+    On Error Resume Next
+    For Each ws In ActiveWorkbook.Worksheets
+        For Each PT In ws.PivotTables
+            ws.Range(PT.TableRange2.Address).Delete Shift:=xlUp
+        Next PT
+    Next ws
+End Sub
+
+Sub filterDates(Report As String, dateType As String, d1 As Long, Optional d2 As Long)
+        Application.ScreenUpdating = False
+        
+        Sheets("Main").Select
+        Range(Range("C3"), Range("C3").End(xlDown)).Clear
+        
+        Call unhideAllSheets
+        Call initialise_sheet("dateRange")
+   
+        Dim importUrl As String
+
+        Sheets("dateRange").Activate
+
+        'example url  http://webalto.sits.credit-agricole.fr/reporting/nodecorate/dataLister.action?report=AMUNDI_HK_Risk_Analysis_PA
+        importUrl = "http://webalto.sits.credit-agricole.fr/reporting/nodecorate/dataLister.action?report=" & Report
+
+        ''set up connection
+        With ActiveSheet.QueryTables.Add(Connection:="URL;" & importUrl, Destination:=Worksheets("dateRange").Range("A1"))
+            .PreserveFormatting = True
+            .Refresh BackgroundQuery:=False
+            .MaintainConnection = False
+            .Name = Report
+        End With
+
+        'delete the connection to free up memoery
+        ActiveSheet.QueryTables(1).Delete
+        
+        Range("A:A").Sort Key1:=Range("A:A"), _
+        Order1:=xlDescending, Header:=xlNo
+        
+        Dim i As Long
+        Dim n As Long
+        
+        Select Case dateType
+        
+            Case "twoDates"
+                i = 1
+                While Cells(i, 1) <> ""
+                    If Cells(i, 1) < d1 Or Cells(i, 1) > d2 Then
+                        Rows(i).Delete
+                    Else
+                        i = i + 1
+                    End If
+                Wend
+                n = Range("A" & Rows.count).End(xlUp).row
+                
+            Case "day"
+                n = d1
+                
+            Case "week"
+                i = 2
+                While Cells(i, 1) <> ""
+                    If Weekday(DateSerial(Left(Cells(i, 1).Value, 4), Mid(Cells(i, 1).Value, 5, 2), Right(Cells(i, 1).Value, 2)), 2) <> 5 Then
+                        Rows(i).Delete
+                    Else
+                        i = i + 1
+                    End If
+                Wend
+                n = d1
+                
+            Case "month"
+                Dim tempMonth As Integer
+                tempMonth = Mid(Cells(1, 1).Value, 5, 2)
+                i = 2
+                While Cells(i, 1) <> ""
+                    If Mid(Cells(i, 1).Value, 5, 2) = tempMonth Then
+                        Rows(i).Delete
+                    Else
+                        tempMonth = Mid(Cells(i, 1).Value, 5, 2)
+                        i = i + 1
+                    End If
+                Wend
+                n = d1
+                
+        End Select
+        
+        Cells(1, 1).Select
+        Range("A1:A" & n).Copy Sheets("Main").Range("C3")
+
+        Sheets("Main").Select
+        Range("A1").Select
+        
+        Application.ScreenUpdating = True
+        
+        Call sbDeleteASheet("dateRange")
+
+End Sub
+
+
