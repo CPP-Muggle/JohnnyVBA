@@ -1,9 +1,4 @@
-''''20160317
-'''by Kevin Chan, Amundi HK Risk Team
-'''This is an attempt to write an alternative to ART tool for better exp
-'''Adding more flexibly for user to modify parameter
-'''easy adjustment to better fit their report needs
-'''ability to check the raw data for errors
+
 
 Option Explicit
 Sub runImportRaw()
